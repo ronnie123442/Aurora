@@ -405,13 +405,9 @@ namespace Aurora.Settings
 
         private void excluded_add_Click(object sender, RoutedEventArgs e)
         {
-            if (!String.IsNullOrWhiteSpace(this.excluded_process_name.Text))
-            {
-                if (!Global.Configuration.excluded_programs.Contains(this.excluded_process_name.Text))
-                {
-                    Global.Configuration.excluded_programs.Add(this.excluded_process_name.Text);
-                }
-            }
+            Window_ProcessSelection dialog = new Window_ProcessSelection { ButtonLabel = "Exclude Process" };
+            if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.ChosenExecutableName)) // do not need to check if dialog is already in excluded_programs since it is a Set and only contains unique items by definition
+                Global.Configuration.excluded_programs.Add(dialog.ChosenExecutableName);
 
             load_excluded_listbox();
         }
@@ -499,6 +495,20 @@ namespace Aurora.Settings
             label.Text = (int)(sld.Value * 100) + " %";
         }
 
+        private void slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            Slider sld = sender as Slider;
+            if (sld == null)
+                return;
+
+            TextBlock label = sld.Tag as TextBlock;
+
+            if (label == null)
+                return;
+
+            label.Text = sld.Value.ToString();
+        }
+
         private void run_at_win_startup_Checked(object sender, RoutedEventArgs e)
         {
             if (IsLoaded && sender is CheckBox)
@@ -554,6 +564,18 @@ namespace Aurora.Settings
         private void devices_view_first_time_steelseries_Click(object sender, RoutedEventArgs e)
         {
             Devices.SteelSeries.SteelSeriesInstallInstructions instructions = new Devices.SteelSeries.SteelSeriesInstallInstructions();
+            instructions.ShowDialog();
+        }
+
+        private void devices_view_first_time_dualshock_Click(object sender, RoutedEventArgs e)
+        {
+            Devices.Dualshock.DualshockInstallInstructions instructions = new Devices.Dualshock.DualshockInstallInstructions();
+            instructions.ShowDialog();
+        }
+
+        private void devices_view_first_time_roccat_Click(object sender, RoutedEventArgs e)
+        {
+            Devices.Roccat.RoccatInstallInstructions instructions = new Devices.Roccat.RoccatInstallInstructions();
             instructions.ShowDialog();
         }
 
@@ -655,7 +677,7 @@ namespace Aurora.Settings
                 Global.Configuration.keyboard_localization = (PreferredKeyboardLocalization)Enum.Parse(typeof(PreferredKeyboardLocalization), this.devices_kb_layout.SelectedIndex.ToString());
                 ConfigManager.Save(Global.Configuration);
 
-                Global.kbLayout.LoadBrand(Global.Configuration.keyboard_brand, Global.Configuration.mouse_preference, Global.Configuration.mouse_orientation);
+                Global.kbLayout.LoadBrandDefault();
             }
         }
 
@@ -666,7 +688,7 @@ namespace Aurora.Settings
                 Global.Configuration.keyboard_brand = (PreferredKeyboard)Enum.Parse(typeof(PreferredKeyboard), this.devices_kb_brand.SelectedItem.ToString());
                 ConfigManager.Save(Global.Configuration);
 
-                Global.kbLayout.LoadBrand(Global.Configuration.keyboard_brand, Global.Configuration.mouse_preference, Global.Configuration.mouse_orientation);
+                Global.kbLayout.LoadBrandDefault();
             }
         }
 
@@ -677,7 +699,7 @@ namespace Aurora.Settings
                 Global.Configuration.mouse_preference = (PreferredMouse)Enum.Parse(typeof(PreferredMouse), this.devices_mouse_brand.SelectedItem.ToString());
                 ConfigManager.Save(Global.Configuration);
 
-                Global.kbLayout.LoadBrand(Global.Configuration.keyboard_brand, Global.Configuration.mouse_preference, Global.Configuration.mouse_orientation);
+                Global.kbLayout.LoadBrandDefault();
             }
         }
 
@@ -688,7 +710,7 @@ namespace Aurora.Settings
                 Global.Configuration.mouse_orientation = (MouseOrientationType)Enum.Parse(typeof(MouseOrientationType), this.devices_mouse_orientation.SelectedItem.ToString());
                 ConfigManager.Save(Global.Configuration);
 
-                Global.kbLayout.LoadBrand(Global.Configuration.keyboard_brand, Global.Configuration.mouse_preference, Global.Configuration.mouse_orientation);
+                Global.kbLayout.LoadBrandDefault();
             }
         }
 
@@ -699,7 +721,7 @@ namespace Aurora.Settings
                 Global.Configuration.virtualkeyboard_keycap_type = (KeycapType)Enum.Parse(typeof(KeycapType), this.ComboBox_virtualkeyboard_keycap_type.SelectedItem.ToString());
                 ConfigManager.Save(Global.Configuration);
 
-                Global.kbLayout.LoadBrand(Global.Configuration.keyboard_brand, Global.Configuration.mouse_preference, Global.Configuration.mouse_orientation);
+                Global.kbLayout.LoadBrandDefault();
             }
         }
 
@@ -941,30 +963,6 @@ namespace Aurora.Settings
             }
         }
 
-        private async void excluded_process_name_DropDownOpened(object sender, EventArgs e)
-        {
-            excluded_process_name.ItemsSource = new string[] { "Working..." };
-
-            HashSet<string> processes = new HashSet<string>();
-            await System.Threading.Tasks.Task.Run(() =>
-            {
-
-                foreach (var p in Process.GetProcesses())
-                {
-                    try
-                    {
-                        processes.Add(Path.GetFileName(p.MainModule.FileName));
-                    }
-                    catch (Exception exc)
-                    {
-
-                    }
-                }
-
-            });
-            excluded_process_name.ItemsSource = processes.ToArray();
-        }
-
         private void btnShowBitmapWindow_Click(object sender, RoutedEventArgs e)
         {
             if (winBitmapView == null)
@@ -977,8 +975,8 @@ namespace Aurora.Settings
 
                 winBitmapView = new Window();
                 winBitmapView.Closed += WinBitmapView_Closed;
-                winBitmapView.ResizeMode = ResizeMode.NoResize;
-                winBitmapView.SizeToContent = SizeToContent.WidthAndHeight;
+                winBitmapView.ResizeMode = ResizeMode.CanResize;
+                //winBitmapView.SizeToContent = SizeToContent.WidthAndHeight;
 
                 winBitmapView.Title = "Keyboard Bitmap View";
                 winBitmapView.Background = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0));
@@ -987,10 +985,10 @@ namespace Aurora.Settings
                 imgBitmap.SnapsToDevicePixels = true;
                 imgBitmap.HorizontalAlignment = HorizontalAlignment.Stretch;
                 imgBitmap.VerticalAlignment = VerticalAlignment.Stretch;
+                /*imgBitmap.MinWidth = 0;
+                imgBitmap.MinHeight = 0;*/
                 imgBitmap.MinWidth = Effects.canvas_width;
                 imgBitmap.MinHeight = Effects.canvas_height;
-                imgBitmap.Width = Effects.canvas_width * 4;
-                imgBitmap.Height = Effects.canvas_height * 4;
 
                 winBitmapView.Content = imgBitmap;
 
@@ -1010,17 +1008,20 @@ namespace Aurora.Settings
                 Dispatcher.Invoke(
                     () =>
                     {
-                        using (MemoryStream memory = new MemoryStream())
+                        lock (bitmap)
                         {
-                            bitmap.Save(memory, System.Drawing.Imaging.ImageFormat.Png);
-                            memory.Position = 0;
-                            BitmapImage bitmapimage = new BitmapImage();
-                            bitmapimage.BeginInit();
-                            bitmapimage.StreamSource = memory;
-                            bitmapimage.CacheOption = BitmapCacheOption.OnLoad;
-                            bitmapimage.EndInit();
+                            using (MemoryStream memory = new MemoryStream())
+                            {
+                                bitmap.Save(memory, System.Drawing.Imaging.ImageFormat.Png);
+                                memory.Position = 0;
+                                BitmapImage bitmapimage = new BitmapImage();
+                                bitmapimage.BeginInit();
+                                bitmapimage.StreamSource = memory;
+                                bitmapimage.CacheOption = BitmapCacheOption.OnLoad;
+                                bitmapimage.EndInit();
 
-                            imgBitmap.Source = bitmapimage;
+                                imgBitmap.Source = bitmapimage;
+                            }
                         }
                     });
             }
@@ -1056,5 +1057,7 @@ namespace Aurora.Settings
         {
             Process.GetCurrentProcess().PriorityClass = Global.Configuration.HighPriority ? ProcessPriorityClass.High : ProcessPriorityClass.Normal;
         }
+
+        private void btnShowGSILog_Click(object sender, RoutedEventArgs e) => new Window_GSIHttpDebug().Show();
     }
 }

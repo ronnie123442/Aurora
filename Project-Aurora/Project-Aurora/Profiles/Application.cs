@@ -25,6 +25,9 @@ namespace Aurora.Profiles
         //TODO: Add NotifyPropertyChanged to properties
         public string[] ProcessNames { get; set; }
 
+        /// <summary>One or more REGULAR EXPRESSIONS that can be used to match the title of an application</summary>
+        public string[] ProcessTitles { get; set; }
+
         public string Name { get; set; }
 
         public string ID { get; set; }
@@ -89,17 +92,15 @@ namespace Aurora.Profiles
                 InvokePropertyChanged(old, newVal);
             }
         }
-        public ImageSource Icon
-        {
-            get {
-                return GetIcon();
-            }
-        }
         #endregion
 
         #region Internal Properties
-        internal ImageSource icon { get; set; }
-        internal UserControl Control { get; set; }
+        protected ImageSource icon;
+        public virtual ImageSource Icon => icon ?? (icon = new BitmapImage(new Uri(Config.IconURI, UriKind.Relative)));
+
+        protected UserControl control;
+        public virtual UserControl Control { get { return control ?? (control = (UserControl)Activator.CreateInstance(this.Config.OverviewControlType, this)); } }
+
         internal Dictionary<string, IEffectScript> EffectScripts { get; set; }
         #endregion
 
@@ -134,16 +135,6 @@ namespace Aurora.Profiles
             PropertyChanged?.Invoke(this, new PropertyChangedExEventArgs(propertyName, oldValue, newValue));
         }
 
-        public virtual UserControl GetUserControl()
-        {
-            return Control ?? (Control = (UserControl)Activator.CreateInstance(this.Config.OverviewControlType, this));
-        }
-
-        public virtual ImageSource GetIcon()
-        {
-            return icon ?? (icon = new BitmapImage(new Uri(Config.IconURI, UriKind.Relative)));
-        }
-
         public void SwitchToProfile(ApplicationProfile newProfileSettings)
         {
             if (Disposed)
@@ -161,7 +152,7 @@ namespace Aurora.Profiles
                 this.Settings.SelectedProfile = Path.GetFileNameWithoutExtension(Profile.ProfileFilepath);
                 Profile.PropertyChanged += Profile_PropertyChanged;
 
-                ProfileChanged?.Invoke(this, new EventArgs());
+                App.Current.Dispatcher.Invoke(() => ProfileChanged?.Invoke(this, new EventArgs()));
             }
         }
 
@@ -169,7 +160,7 @@ namespace Aurora.Profiles
         {
             ApplicationProfile profile = (ApplicationProfile)Activator.CreateInstance(Config.ProfileType);
             profile.ProfileName = profileName;
-            profile.ProfileFilepath = Path.Combine(GetProfileFolderPath(), GetValidFilename(profile.ProfileName) + ".json");
+            profile.ProfileFilepath = Path.Combine(GetProfileFolderPath(), GetUnusedFilename(GetProfileFolderPath(), profile.ProfileName) + ".json");
             return profile;
         }
 
@@ -178,7 +169,7 @@ namespace Aurora.Profiles
             if (Disposed)
                 return;
 
-            profile.ProfileFilepath = Path.Combine(GetProfileFolderPath(), GetValidFilename(profile.ProfileName) + ".json");
+            profile.ProfileFilepath = Path.Combine(GetProfileFolderPath(), GetUnusedFilename(GetProfileFolderPath(), profile.ProfileName) + ".json");
             this.Profiles.Add(profile);
         }
 
@@ -210,9 +201,25 @@ namespace Aurora.Profiles
             SwitchToProfile(_newProfile);
         }
 
+        public ApplicationProfile AddNewProfile(String profileName)
+        {
+            ApplicationProfile _newProfile = CreateNewProfile(profileName);
+
+            Profiles.Add(_newProfile);
+
+            SaveProfiles();
+
+            SwitchToProfile(_newProfile);
+
+            return _newProfile;
+        }
+
         public void DeleteProfile(ApplicationProfile profile)
         {
             if (Disposed)
+                return;
+
+            if (Profiles.Count == 1)
                 return;
 
             if (profile != null && !String.IsNullOrWhiteSpace(profile.ProfileFilepath))
@@ -250,6 +257,14 @@ namespace Aurora.Profiles
             return filename;
         }
 
+        protected string GetUnusedFilename(string dir, string filename) {
+            var safeName = GetValidFilename(filename);
+            if (!File.Exists(Path.Combine(dir, safeName + ".json"))) return safeName;
+            var i = 0;
+            while (File.Exists(Path.Combine(dir, safeName + "-" + ++i + ".json")));
+            return safeName + "-" + i;
+        }
+
         public virtual string GetProfileFolderPath()
         {
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Aurora", "Profiles", Config.ID);
@@ -275,6 +290,8 @@ namespace Aurora.Profiles
             }
         }
 
+        //hacky fix to sort out MoD profile type change
+        protected ISerializationBinder binder = Utils.JSONUtils.SerializationBinder;
         internal ApplicationProfile LoadProfile(string path)
         {
             if (Disposed)
@@ -288,7 +305,7 @@ namespace Aurora.Profiles
 
                     if (!String.IsNullOrWhiteSpace(profile_content))
                     {
-                        ApplicationProfile prof = (ApplicationProfile)JsonConvert.DeserializeObject(profile_content, Config.ProfileType, new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace, TypeNameHandling = TypeNameHandling.All, Binder = Aurora.Utils.JSONUtils.SerializationBinder, Error = new EventHandler<Newtonsoft.Json.Serialization.ErrorEventArgs>(LoadProfilesError) });
+                        ApplicationProfile prof = (ApplicationProfile)JsonConvert.DeserializeObject(profile_content, Config.ProfileType, new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace, TypeNameHandling = TypeNameHandling.All, SerializationBinder = binder, Error = new EventHandler<Newtonsoft.Json.Serialization.ErrorEventArgs>(LoadProfilesError) });
                         prof.ProfileFilepath = path;
 
                         if (String.IsNullOrWhiteSpace(prof.ProfileName))
@@ -349,7 +366,7 @@ namespace Aurora.Profiles
             return null;
         }
 
-        private void LoadProfilesError(object sender, Newtonsoft.Json.Serialization.ErrorEventArgs e)
+        protected virtual void LoadProfilesError(object sender, Newtonsoft.Json.Serialization.ErrorEventArgs e)
         {
             if (e.CurrentObject.GetType().Equals(typeof(ObservableCollection<Layer>)))
                 e.ErrorContext.Handled = true;
@@ -484,7 +501,7 @@ namespace Aurora.Profiles
 
                             break;
                         case ".cs":
-                            Assembly script_assembly = CSScript.LoadCodeFrom(script);
+                            Assembly script_assembly = CSScript.LoadFile(script);
                             Type effectType = typeof(IEffectScript);
                             foreach (Type typ in script_assembly.ExportedTypes)
                             {
@@ -513,6 +530,10 @@ namespace Aurora.Profiles
                     //Maybe MessageBox info dialog could be included.
                 }
             }
+        }
+
+        public void ForceScriptReload() {
+            LoadScripts(GetProfileFolderPath(), true);
         }
 
         protected void InitalizeScriptSettings(ApplicationProfile profile_settings, bool ignore_removal = false)
